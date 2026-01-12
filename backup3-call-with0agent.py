@@ -8,9 +8,6 @@ import json
 import requests
 import subprocess
 import traceback
-import MySQLdb
-from datetime import datetime
-
 
 # ================= CONFIG ===================
 DEEPGRAM_API_KEY = ""
@@ -25,84 +22,18 @@ def agi(cmd):
     sys.stdout.flush()
     return sys.stdin.readline()
 
-agi_env = {}
-
 # --------------- READ AGI ENV ---------------
 while True:
     line = sys.stdin.readline().strip()
     if not line:
         break
-    key, val = line.split(":", 1)
-    agi_env[key.strip()] = val.strip()
-uniqueid = agi_env.get("agi_uniqueid")
-caller   = agi_env.get("agi_callerid")
-callee   = agi_env.get("agi_extension")
 
-
-call_start = datetime.now()
-
-db = MySQLdb.connect(
-    host="localhost",
-    user="root",
-    passwd="tec@2020",
-    db="asterisk_ai"
-)
-cursor = db.cursor()
-
-cursor.execute("""
-INSERT INTO calls (uniqueid, caller, callee, start_time)
-VALUES (%s, %s, %s, %s)
-""", (uniqueid, caller, callee, call_start))
-
-db.commit()
 agi('VERBOSE "VOICE AI AGENT STARTED" 1')
 
 # -------- Conversation memory ---------------
-prompt = """
-You are an AI voice assistant for HR interview screening calls.
-Your job is to conduct a short pre-interview screening.
-
-Rules:
-- Keep responses short, clear, and polite.
-- Ask one question at a time.
-- Do not explain too much.
-- Confirm important details briefly.
-- If the user gives unclear answers, ask again politely.
-
-Your goals:
-1. Collect candidate name
-2. Ask years of experience
-3. Ask desired job role
-4. Ask availability for interview
-5. End the call professionally
-
-Conversation Flow:
-- Greet the candidate
-- Ask screening questions
-- Thank the candidate and end the call
-"""
 conversation = [
-    {"role": "system", "content": prompt}
+    {"role": "system", "content": "You are a helpful voice assistant for phone calls. Keep answers short and clear."}
 ]
-
-def update_call_end(reason="normal"):
-    try:
-        call_end = datetime.now()
-        duration = int((call_end - call_start).total_seconds())
-
-        cursor.execute("""
-        UPDATE calls
-        SET end_time=%s,
-            duration=%s,
-            hangup_cause=%s
-        WHERE uniqueid=%s
-        """, (call_end, duration, reason, uniqueid))
-        db.commit()
-
-        agi('VERBOSE "CALL END UPDATED" 1')
-    except Exception as e:
-        agi(f'VERBOSE "FINAL DB ERROR: {e}" 1')
-
 
 try:
     agi("ANSWER")
@@ -155,11 +86,6 @@ try:
             user_text = "I did not hear anything."
 
         conversation.append({"role": "user", "content": user_text})
-        cursor.execute("""
-        INSERT INTO conversations (uniqueid, turn, speaker, message)
-        VALUES (%s, %s, 'user', %s)
-        """, (uniqueid, turn, user_text))
-        db.commit()
 
         # ---------- OPENAI LLM ----------
         llm_headers = {
@@ -186,12 +112,6 @@ try:
         agi(f'VERBOSE "BOT REPLY: {bot_text}" 1')
 
         conversation.append({"role": "assistant", "content": bot_text})
-        cursor.execute("""
-        INSERT INTO conversations (uniqueid, turn, speaker, message)
-        VALUES (%s, %s, 'bot', %s)
-        """, (uniqueid, turn, bot_text))
-        db.commit()
-
 
         # ---------- DEEPGRAM TTS ----------
         tts_wav = f"/tmp/bot_{turn}.wav"
@@ -229,10 +149,6 @@ try:
         agi('VERBOSE "PRESS # TO END OR SPEAK AGAIN" 1')
         r = agi("WAIT FOR DIGIT 2000")
 
-        if "result=-1" in r:
-            update_call_end("hangup")
-            break
-
         if "result=35" in r or "result=-1" in r:
             agi('VERBOSE "CALL ENDED" 1')
             break
@@ -243,25 +159,7 @@ except Exception as e:
     agi('VERBOSE "FATAL AGI ERROR" 1')
     agi(f'VERBOSE "{str(e)}" 1')
     agi(f'VERBOSE "{traceback.format_exc()}" 1')
-    update_call_end("error")
-
     time.sleep(5)
-finally:
-    call_end = datetime.now()
-    duration = int((call_end - call_start).total_seconds())
-
-    try:
-        cursor.execute("""
-        UPDATE calls
-        SET end_time=%s,
-            duration=%s,
-            hangup_cause=%s
-        WHERE uniqueid=%s
-        """, (call_end, duration, "normal", uniqueid))
-        db.commit()
-        db.close()
-    except:
-        pass
 
 
 # sudo dos2unix /home/divya/Divya/diya/voice-agent/voice_agent_stt.py
