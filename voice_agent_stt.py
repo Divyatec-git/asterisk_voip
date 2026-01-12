@@ -264,6 +264,10 @@ finally:
         pass
 
 
+       # Project rerun or run after days 
+#sudo asterisk -rx "dialplan reload"
+#sudo asterisk -rvvv
+
 # sudo dos2unix /home/divya/Divya/diya/voice-agent/voice_agent_stt.py
 # sudo chmod 755 /home/divya/Divya/diya/voice-agent/voice_agent_stt.py
 # sudo apt install -y python3-requests
